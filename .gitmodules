@@ -1,0 +1,3 @@
+[submodule "submodules/omniglot"]
+	path = submodules/omniglot
+	url = https://github.com/brendenlake/omniglot.git
