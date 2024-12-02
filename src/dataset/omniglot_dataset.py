@@ -6,14 +6,14 @@ import cv2
 import numpy as np
 
 class OmniglotDataset(dataset):
-    def __init__(self, args):
+    def __init__(self, args: EasyDict):
         self.args = args
         
         self.root_dir = args.root_dir
         self.image_subdir = os.path.joint(self.root_dir, args.image_subdir)
         self.stroke_subdir = os.path.joint(self.root_dir, args.stroke_subdir)
         
-        assert self._check_data_exists, 'Data does not exist! Stopping.'
+        assert self._check_data_exists(), 'Data does not exist! Stopping.'
         
         self.image_paths = self._load_paths()
         
