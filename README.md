@@ -15,3 +15,9 @@ Run the following:
 ```
 
 You will then have the dataset prepared at this path: `./data/omniglot`.
+
+## 1.3 Env
+python 3.12.4
+install torch
+pip install opencv-python
+pip install easydict

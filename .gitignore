@@ -1,2 +1,5 @@
 data/MNIST
 data/omniglot
+logs/
+archive/
+__pycache__/
