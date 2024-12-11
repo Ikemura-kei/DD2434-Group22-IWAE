@@ -25,12 +25,12 @@ class IWAELowerBoundLoss(nn.Module):
         # Collect K samples
         mu_sampled = mu.unsqueeze(1).repeat(1, k, 1) 
         sigma_sampled = (0.5 * log_var).exp().unsqueeze(1).repeat(1, k, 1)
-        x_sampled = x.unsqueeze(1).repeat(1, k, 1, 1, 1) 
-        recon_x = recon_x.unsqueeze(1).repeat(1, k, 1, 1, 1)
+        x_sampled = x.unsqueeze(1).repeat(1, k, 1) 
+        recon_x = recon_x.unsqueeze(1).repeat(1, k, 1)
         repar_z = repar_z.unsqueeze(1).repeat(1, k, 1)
 
         # Compute unnormalized log weights [batch, sample_num]
-        log_p_x_given_z = dists.Bernoulli(recon_x).log_prob(x_sampled).sum(axis=(2, 3, 4))
+        log_p_x_given_z = dists.Bernoulli(recon_x).log_prob(x_sampled).sum(2)
         log_p_z = dists.Normal(0, 1).log_prob(repar_z).sum(2)
         log_q_z_given_x = dists.Normal(mu_sampled, sigma_sampled).log_prob(repar_z).sum(2)
         log_importance_weight = log_p_x_given_z - log_q_z_given_x + log_p_z
