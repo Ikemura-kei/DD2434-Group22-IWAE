@@ -16,8 +16,9 @@ class IWAELowerBoundLoss(nn.Module):
         x = input['x']
         recon_x = input['recon_x']
         repar_z = input['repar_z']
-        return self._compute(log_var, mu, x, recon_x, repar_z)
-    
+        k = input['k']
+        return self._compute(log_var, mu, x, recon_x, repar_z, k)   
+        
     def _compute(self, log_var, mu, x, recon_x, repar_z, k):
         x = (x > 0.5).float()  # Binarizing input
 
