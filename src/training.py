@@ -81,11 +81,10 @@ with tqdm(total_iterations) as pbar:
                 optimizer.zero_grad()
                 mean, logvar, z, y = model(flattened_img)
 
-                y = y.view(B, C, H, W)
                 input = {
                             'log_var': logvar,
                             'mu': mean,
-                            'x': image,
+                            'x': flattened_img,
                             'recon_x': y,
                             'repar_z': z,
                             'k': K
