@@ -6,7 +6,10 @@ from torchvision import transforms
 import torchvision.datasets as datasets
 
 
-from IWAE import *
+#from IWAE import *
+from iwae_model import *
+from iwae_loss import *
+
 from easydict import EasyDict
 import numpy as np
 from tqdm import tqdm
