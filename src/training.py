@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import torchvision.datasets as datasets
-
+from datetime import datetime
 
 #from IWAE import *
 from iwae_model import *
@@ -14,11 +14,13 @@ from easydict import EasyDict
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import os
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # DEVICE = torch.device("cpu")
 # EPOCHS = 3280
 K = 1
+
 
 args = EasyDict()
 
@@ -28,7 +30,10 @@ args['network']['EncoderNetwork']['input_dimensions'] = 28 * 28
 args['network']['EncoderNetwork']['hidden_layers'] = [200, 200]
 args['network']['EncoderNetwork']['latent_dimensions'] = 50
 args['network']['EncoderNetwork']['activation'] = "tanh"
-
+args['network']['EncoderNetwork']['k'] = 3
+# K=1: 72.5224
+# K=5: 68.9538
+# K=50: 67.4221
 args['network']['DecoderNetwork'] = EasyDict()
 args['network']['DecoderNetwork']['output_dimension'] = 28 * 28
 args['network']['DecoderNetwork']['hidden_layers'] = [200, 200]
@@ -43,22 +48,38 @@ args['train']['optimizer_params']['betas'] = (0.9, 0.999)
 args['train']['optimizer_params']['eps'] = 1e-4
 args['train']['optimizer_params']['lr'] = 1e-3
 
+args['test'] = EasyDict()
+args['test']['batch_size'] = 60
+args['test']['eval_period'] = 98400
+# args['test']['eval_period'] = 1000
+
+
+save_dir = os.path.join('./logs', datetime.today().strftime('%Y-%m-%d %H:%M:%S'))
+os.makedirs(save_dir, exist_ok=True)
+import json
+with open(os.path.join(save_dir, 'cfg.json'), 'w') as f:
+    json.dump(args, f, indent=4)
+
 dataset = datasets.MNIST(root="dataset/", train=True, transform=transforms.ToTensor(), download=True)
 data_loader = DataLoader(dataset, batch_size=args.train.batch_size, shuffle=True)
+eval_dataset = datasets.MNIST(root="dataset/", train=False, transform=transforms.ToTensor(), download=True)
+eval_data_loader = DataLoader(eval_dataset, batch_size=args.test.batch_size, shuffle=False)
 
 loss_func = IWAELowerBoundLoss()
 model = IWAE(args['network'])
 model = model.to(DEVICE)
 optimizer = torch.optim.Adam(model.parameters(), **args.train.optimizer_params)
 
+print(DEVICE)
 
-
-I = 3 ############ 7 for 3280 EPOCH
+I = 7 ############ 7 for 3280 EPOCH
 total_iterations = sum([3**i for i in range(I+1)]) * len(data_loader)
 accum_iter = 0
 print('Total iterations:',total_iterations)
+print('Evaluation set size:', len(eval_data_loader))
+print('Train set size:', len(data_loader))
        
-with tqdm(total_iterations) as pbar:  
+with tqdm(total=total_iterations) as pbar:  
     for i in range(I+1):
         lr_scaler = 10 ** (-i/7.0)
         new_lr = args['train']['optimizer_params']['lr'] * lr_scaler
@@ -76,7 +97,8 @@ with tqdm(total_iterations) as pbar:
                 label = sample[1].to(DEVICE)  # The label tensor
                 
                 B, C, H, W = image.shape
-                flattened_img = image.view(image.size(0), -1)
+                # flattened_img = image.view(image.size(0), 1, -1)
+                flattened_img = image.view(-1, 1, 28 * 28)
 
                 optimizer.zero_grad()
                 mean, logvar, z, y = model(flattened_img)
@@ -98,10 +120,44 @@ with tqdm(total_iterations) as pbar:
                 accum_iter += 1
                 if it % 1000 == 0:
                     pbar.set_description("Loss {:.2f}, lr: {:.5f}, iter: {:.1f}".format(loss.item(), new_lr,accum_iter))
-                
+                    
+                    
+                if accum_iter % args['test']['eval_period'] == 0:
+                    model.eval()
+                    model.encoder.k = 5000
+                    with torch.no_grad():
+                        eval_loss = 0
+                        n_samples = 0
+                        for _, sample in enumerate(eval_data_loader):
+                            image = sample[0].to(DEVICE)  # The image tensor
+                            label = sample[1].to(DEVICE)  # The label tensor
+                            
+                            B, C, H, W = image.shape
+                            flattened_img = image.view(-1, 1, 28 * 28)
+
+                            mean, logvar, z, y = model(flattened_img)
+
+                            input = {
+                                        'log_var': logvar,
+                                        'mu': mean,
+                                        'x': flattened_img,
+                                        'recon_x': y,
+                                        'repar_z': z,
+                                        'k': 5000
+                                        }
+                            loss = loss_func(input)
+                            eval_loss += (loss * sample[0].shape[0])
+                            n_samples += sample[0].shape[0]
+                            # print(loss)
+
+                        eval_loss = eval_loss / n_samples
+                        print("eval loss", eval_loss)
+                        torch.save(model.state_dict(), os.path.join(save_dir, "iwae_model_iter{:07d}_nll{:.3f}.pth".format(accum_iter, eval_loss.item())))
+                    model.encoder.k = args['network']['EncoderNetwork']['k']
+                    model.train()
 
 
-torch.save(model.state_dict(), "iwae_model.pth")
+torch.save(model.state_dict(), os.path.join(save_dir,"iwae_model.pth"))
 print("Training complete.")
 
 trained_iwae = IWAE(args['network'])  # Recreate the model object
