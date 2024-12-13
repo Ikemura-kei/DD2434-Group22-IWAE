@@ -2,9 +2,9 @@ import torch
 
 import cv2
 from model.vae import *
-from model.vae_sample import *
 from loss.vae_lower_bound_loss import VAELowerBoundLoss, evidence_lower_bound
 from dataset.omniglot_dataset import OmniglotDataset
+from dataset.omniglot_original_dataset import OmniglotOriginalDataset
 
 from torch.utils.data import DataLoader
 
@@ -12,11 +12,17 @@ from easydict import EasyDict
 from tqdm import tqdm
 from torch.optim import Adam
 import numpy as np
+from iwae_model import *
+from iwae_loss import *
+
+
 args = EasyDict()
 args['data'] = EasyDict()
-args['data']['root_dir'] = '../data'
-args['data']['image_subdir'] = 'omniglot/images_background'
-args['data']['stroke_subdir'] = 'omniglot/strokes_background'
+args['data']['root_dir'] = './data'
+args['data']['image_subdir'] = ['omniglot/images_background', 'omniglot/images_background_small1', 'omniglot/images_background_small2', 'omniglot/images_evaluation']
+args['data']['stroke_subdir'] = ['omniglot/strokes_background', 'omniglot/strokes_background_small1', 'omniglot/strokes_background_small2', 'omniglot/strokes_evaluation']
+# args['data']['image_subdir'] = ['omniglot/images_background', 'omniglot/images_background_small2']
+# args['data']['stroke_subdir'] = ['omniglot/strokes_background', 'omniglot/strokes_background_small2']
 args['data']['overfitting'] = False
 
 args['network'] = EasyDict()
@@ -40,11 +46,13 @@ args['train']['optimizer_params']['betas'] = (0.9, 0.999)
 args['train']['optimizer_params']['eps'] = 1e-4
 args['train']['optimizer_params']['lr'] = 1e-3
 
-train_dataset = OmniglotDataset(args['data'])
+# train_dataset = OmniglotDataset(args['data'])
+train_dataset = OmniglotOriginalDataset(args['data'])
 train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size, shuffle=True)
 print("[main]: Iterations per epoch: ", len(train_loader))
 
 loss_func = VAELowerBoundLoss()
+eval_metric = IWAELowerBoundLoss()
 # loss_func = evidence_lower_bound
 model = VAE(args['network'])
 model = model.to('cuda')
@@ -112,14 +120,14 @@ with tqdm(total=total_iterations) as pbar:
                 loss.backward()
                 optimizer.step()
                 
-                if accum_iter % 30000 == 0:
-                    save_image(sample['image'], y, prefix="{:07d}".format(accum_iter)) 
                     
                 pbar.update(1)
                 accum_iter += 1
                 if it % 100 == 0:
                     pbar.set_description("Loss {:.2f}, lr: {:.5f}".format(loss.item(), new_lr))
                 
+                if accum_iter % 30000 == 0:
+                    save_image(sample['image'], y, prefix="{:07d}".format(accum_iter)) 
 
 # save_image(sample['image'], x_hat) 
 

@@ -24,7 +24,7 @@ class VAELowerBoundLoss(Module):
         
         log_likelihood = self._log_likelihood(x, likelihood_params)
         reconstruction_losses_per_input = torch.sum(torch.flatten(log_likelihood, start_dim=1), dim=1)
-        term2 = -1 * torch.sum(reconstruction_losses_per_input) # we want to minimize loss, so multiply -1
+        term2 = -1 * torch.mean(reconstruction_losses_per_input) # we want to minimize loss, so multiply -1
         
         # print("Reconstruction losses {}".format(reconstruction_losses_per_input))
         # print("D_KL loss {}".format(term1))

@@ -12,8 +12,17 @@ class OmniglotDataset(Dataset):
         self.args = args
         
         self.root_dir = args.root_dir
-        self.image_subdir = os.path.join(self.root_dir, args.image_subdir)
-        self.stroke_subdir = os.path.join(self.root_dir, args.stroke_subdir)
+        
+        if not isinstance(args.image_subdir, list):
+            self.image_subdir = [os.path.join(self.root_dir, args.image_subdir)]
+            self.stroke_subdir = [os.path.join(self.root_dir, args.stroke_subdir)]
+        else:
+            self.image_subdir = []
+            self.stroke_subdir = []
+            for i in range(len(args.image_subdir)):
+                self.image_subdir.append(os.path.join(self.root_dir, args.image_subdir[i]))
+                self.stroke_subdir.append(os.path.join(self.root_dir, args.stroke_subdir[i]))
+                
         self.overfitting = args.overfitting
         
         assert self._check_data_exists(), 'Data does not exist! Stopping.'
@@ -57,29 +66,37 @@ class OmniglotDataset(Dataset):
     def _load_paths(self):
         image_paths = []
         
-        for category_dir in os.listdir(self.image_subdir):
-            category_dir = os.path.join(self.image_subdir, category_dir)
+        for i in range(len(self.image_subdir)):
+            image_subdir = self.image_subdir[i]
             
-            if not os.path.isdir(category_dir):
-                continue
-            
-            for character_dir in os.listdir(category_dir):
-                character_dir = os.path.join(category_dir, character_dir)
+            for category_dir in os.listdir(image_subdir):
+                category_dir = os.path.join(image_subdir, category_dir)
                 
-                if not os.path.isdir(character_dir) or 'character' not in character_dir.split('/')[-1]:
+                if not os.path.isdir(category_dir):
                     continue
                 
-                for image_path in os.listdir(character_dir):
-                    if not '.png' in image_path:
+                for character_dir in os.listdir(category_dir):
+                    character_dir = os.path.join(category_dir, character_dir)
+                    
+                    if not os.path.isdir(character_dir) or 'character' not in character_dir.split('/')[-1]:
                         continue
                     
-                    image_path = os.path.join(character_dir, image_path)
-                    image_paths.append(image_path)
+                    for image_path in os.listdir(character_dir):
+                        if not '.png' in image_path:
+                            continue
+                        
+                        image_path = os.path.join(character_dir, image_path)
+                        image_paths.append(image_path)
                     
         return image_paths
     
     def _check_data_exists(self):
-        images_exist = os.path.exists(self.image_subdir) 
-        strokes_exist = os.path.exists(self.stroke_subdir)
-        return images_exist and strokes_exist
+        for i in range(len(self.image_subdir)):
+            image_subdir = self.image_subdir[i]
+            stroke_subdir = self.stroke_subdir[i]
+            images_exist = os.path.exists(image_subdir) 
+            strokes_exist = os.path.exists(stroke_subdir)
+            if not (images_exist and strokes_exist):
+                return False
+        return True
         
