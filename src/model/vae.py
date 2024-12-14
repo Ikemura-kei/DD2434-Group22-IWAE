@@ -3,8 +3,10 @@ import torch.nn as nn
 from easydict import EasyDict
 
 class EncoderNetwork(nn.Module):
-    def __init__(self, input_dimensions, hidden_layers, latent_dimensions, activation="tanh"):
+    def __init__(self, input_dimensions, hidden_layers, latent_dimensions, activation="tanh", k=1):
         super(EncoderNetwork, self).__init__()
+        
+        self.k = k
 
         # Activation function map
         self.activation_map = {
@@ -42,7 +44,7 @@ class EncoderNetwork(nn.Module):
         - Enables backpropagation through the latent sampling process.
         """
         std = torch.exp(0.5 * logvar)  # Standard deviation
-        eps = torch.randn_like(std, device=logvar.device)   # Random noise ~ N(0, 1)
+        eps = torch.randn_like(mean.repeat(1, self.k, 1), device=logvar.device) # Random noise ~ N(0, 1)
         return mean + eps * std
 
     def forward(self, input_vectors):

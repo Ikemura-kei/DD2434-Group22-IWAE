@@ -31,6 +31,7 @@ args['network']['EncoderNetwork']['input_dimensions'] = 28 * 28
 args['network']['EncoderNetwork']['hidden_layers'] = [200, 200]
 args['network']['EncoderNetwork']['latent_dimensions'] = 50
 args['network']['EncoderNetwork']['activation'] = "tanh"
+args['network']['EncoderNetwork']['k'] = 1
 
 args['network']['DecoderNetwork'] = EasyDict()
 args['network']['DecoderNetwork']['output_dimension'] = 28 * 28
@@ -46,9 +47,19 @@ args['train']['optimizer_params']['betas'] = (0.9, 0.999)
 args['train']['optimizer_params']['eps'] = 1e-4
 args['train']['optimizer_params']['lr'] = 1e-3
 
+import os
+from datetime import datetime
+save_dir = os.path.join('./logs', datetime.today().strftime('%Y-%m-%d %H:%M:%S'))
+os.makedirs(save_dir, exist_ok=True)
+import json
+with open(os.path.join(save_dir, 'cfg.json'), 'w') as f:
+    json.dump(args, f, indent=4)
+    
 # train_dataset = OmniglotDataset(args['data'])
-train_dataset = OmniglotOriginalDataset(args['data'])
+train_dataset = OmniglotOriginalDataset(args['data'], train=True)
+test_dataset = OmniglotOriginalDataset(args['data'], train=False)
 train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 print("[main]: Iterations per epoch: ", len(train_loader))
 
 loss_func = VAELowerBoundLoss()
@@ -100,22 +111,34 @@ with tqdm(total=total_iterations) as pbar:
                 for k, v in sample.items():
                     sample[k] = v.cuda()
                 
-                B, C, H, W = sample['image'].shape
-                net_in = sample['image'].flatten(start_dim=1)
                 
+                B, C, HW = sample['image'].shape
+                # net_in = sample['image'].flatten(start_dim=1)
+                net_in = sample['image'].view(-1, 1, 28 * 28)
                 optimizer.zero_grad()
                 
                 mean, logvar, z, y = model(net_in)
-                y = y.view(B, C, H, W)
-                likelihood_params = {'theta': y[:,None,...]}
-                input = {
-                        'log_var': logvar,
-                        'mu': mean,
-                        'x': sample['image'],
-                        'likelihood_params': likelihood_params
-                        }
+                # print(y.shape)
+                # y = y.view(B, C, H, W)
+                # likelihood_params = {'theta': y}
+                # input = {
+                #         'log_var': logvar,
+                #         'mu': mean,
+                #         'x': net_in,
+                #         'likelihood_params': likelihood_params
+                #         }
+                # loss = loss_func(input)
                 
-                loss = loss_func(input)
+                input = {
+                            'log_var': logvar,
+                            'mu': mean,
+                            'x': net_in,
+                            'recon_x': y,
+                            'repar_z': z,
+                            'k': args['network']['EncoderNetwork']['k']
+                            }
+                loss = eval_metric(input)
+                
                 
                 loss.backward()
                 optimizer.step()
@@ -126,8 +149,43 @@ with tqdm(total=total_iterations) as pbar:
                 if it % 100 == 0:
                     pbar.set_description("Loss {:.2f}, lr: {:.5f}".format(loss.item(), new_lr))
                 
-                if accum_iter % 30000 == 0:
-                    save_image(sample['image'], y, prefix="{:07d}".format(accum_iter)) 
+                if accum_iter % (39950 * 2) == 0:
+                    # save_image(sample['image'], y, prefix="{:07d}".format(accum_iter)) 
+                    
+                    model.eval()
+                    # train_dataset.eval()
+                    
+                    model.encoder.k = 5000
+                    with torch.no_grad():
+                        eval_loss = 0
+                        n_samples = 0
+                        for _, sample in enumerate(test_loader):
+                            for k, v in sample.items():
+                                sample[k] = v.cuda()
+                            
+                            # B, C, HW = image.shape
+                            # flattened_img = sample['image'].flatten(start_dim=1)
+                            flattened_img = sample['image'].view(-1, 1, 28 * 28)
+                            mean, logvar, z, y = model(flattened_img)
+
+                            input = {
+                                        'log_var': logvar,
+                                        'mu': mean,
+                                        'x': flattened_img,
+                                        'recon_x': y,
+                                        'repar_z': z,
+                                        'k': 5000
+                                        }
+                            loss = eval_metric(input)
+                            eval_loss += (loss * sample['image'].shape[0])
+                            n_samples += sample['image'].shape[0]
+                            # print(loss)
+
+                        eval_loss = eval_loss / n_samples
+                        print("eval loss", eval_loss)
+                        torch.save(model.state_dict(), os.path.join(save_dir, "iwae_model_iter{:07d}_nll{:.3f}.pth".format(accum_iter, eval_loss.item())))
+                    model.encoder.k = args['network']['EncoderNetwork']['k']
+                    model.train()
 
 # save_image(sample['image'], x_hat) 
 

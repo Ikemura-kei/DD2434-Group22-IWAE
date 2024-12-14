@@ -9,10 +9,10 @@ import scipy.io
 
 
 class OmniglotOriginalDataset(Dataset):
-    def __init__(self, args):
+    def __init__(self, args, train=True):
         super().__init__()
         self.args = args
-        self.train_ = True
+        self.train_ = train
         
         self.root_dir = args.root_dir
         
@@ -22,7 +22,7 @@ class OmniglotOriginalDataset(Dataset):
         def reshape_data(data):
             return data.reshape((-1, 28, 28))
         self.data = {'train': reshape_data(omni_raw['data'].T.astype('float32')), \
-            'test': (omni_raw['testdata'].T.astype('float32'))}
+            'test': reshape_data(omni_raw['testdata'].T.astype('float32'))}
         
         print("Num training data {}, num testing data {}".format(self.data['train'].shape, self.data['test'].shape))
         
@@ -47,4 +47,4 @@ class OmniglotOriginalDataset(Dataset):
         image = self.data[key][idx][None,...]
         image = torch.Tensor(image)
         
-        return {'image': image}
+        return [image]

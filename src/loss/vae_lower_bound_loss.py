@@ -19,6 +19,7 @@ class VAELowerBoundLoss(Module):
         # log_var: exp(sigma^2) (B, J), J being the dimension of the multi-variate Gaussian
         # mu: (B, J)
         # x: inputs, (B, C, H, W), C=1 if Bernoulli likelihood, C>1 otherwise
+        # x: inputs, (B, 1, C*H*W), C=1 if Bernoulli likelihood, C>1 otherwise
         var = torch.exp(log_var)
         term1 = -0.5 * (1 + log_var - var - torch.square(mu)).sum()
         
@@ -34,9 +35,9 @@ class VAELowerBoundLoss(Module):
     
     def _log_likelihood(self, x, likelihood_params):
         if self.likelihood_type == 'bernoulli':
-            # likelihood_params['theta']: (B, K, 1, H, W)
+            # likelihood_params['theta']: (B, K, H*W)
             K = likelihood_params['theta'].shape[1]
-            x_ = torch.tile(x[:,None,...], (1, K, 1, 1, 1))
+            x_ = torch.tile(x, (1, K, 1))
             return x_ * torch.clamp(torch.log(likelihood_params['theta'] + 1e-7), min=-100, max=1e6) + (1-x_) * torch.clamp(torch.log(1-likelihood_params['theta'] + 1e-7), min=-100, max=1e6)
         else:
             raise NotImplementedError
