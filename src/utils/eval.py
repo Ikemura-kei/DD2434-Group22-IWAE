@@ -29,10 +29,10 @@ def evaluation(model, test_loader, save_dir, eval_metric, accum_iter):
             loss = eval_metric(input)
             eval_loss += (loss * image.shape[0])
             n_samples += image.shape[0]
-            # print(loss)
 
         eval_loss = eval_loss / n_samples
-        print("eval loss", eval_loss)
-        torch.save(model.state_dict(), os.path.join(save_dir, "iwae_model_iter{:07d}_nll{:.3f}.pth".format(accum_iter, eval_loss.item())))
+        # print("eval loss", eval_loss)
+        torch.save(model.state_dict(), os.path.join(save_dir, "model_iter{:07d}_nll{:.3f}.pth".format(accum_iter, eval_loss.item())))
         
     model.encoder.k = original_k
+    return eval_loss.item(), image, y

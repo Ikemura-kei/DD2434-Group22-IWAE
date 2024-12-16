@@ -20,17 +20,11 @@ class OmniglotOriginalDataset(Dataset):
         os.path.join(self.root_dir, 'omniglot_original', 'chardata.mat'))
 
         def reshape_data(data):
-            return data.reshape((-1, 28, 28))
+            return data.reshape((-1, 28, 28))[:,None,...] # (1, 28, 28)
         self.data = {'train': reshape_data(omni_raw['data'].T.astype('float32')), \
             'test': reshape_data(omni_raw['testdata'].T.astype('float32'))}
         
         print("Num training data {}, num testing data {}".format(self.data['train'].shape, self.data['test'].shape))
-        
-    def train(self):
-        self.train_ = True
-        
-    def eval(self):
-        self.train_ = False
         
     def __len__(self):
         if self.train_:
@@ -44,7 +38,7 @@ class OmniglotOriginalDataset(Dataset):
         else:
             key = 'test'
             
-        image = self.data[key][idx][None,...]
+        image = self.data[key][idx]
         image = torch.Tensor(image)
         
         return [image]

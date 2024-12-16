@@ -27,4 +27,4 @@ train:
     eps: 1.0e-4
     lr: 1.0e-3
 
-  eval_period: 80000
+  eval_period: 20000

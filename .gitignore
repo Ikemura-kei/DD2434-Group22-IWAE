@@ -3,3 +3,4 @@ data/omniglot
 logs/
 archive/
 __pycache__/
+data/BinaryMNIST

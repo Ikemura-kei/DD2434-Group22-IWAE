@@ -1,191 +1,177 @@
-import torch
-
-import cv2
+# -- model import --
 from model.vae import *
-from loss.vae_lower_bound_loss import VAELowerBoundLoss, evidence_lower_bound
+
+# -- loss import --
+from loss import *
+
+# -- dataset import --
 from dataset.omniglot_dataset import OmniglotDataset
 from dataset.omniglot_original_dataset import OmniglotOriginalDataset
 
+# -- torch stuff --
+import torch
 from torch.utils.data import DataLoader
-
+from torchvision import transforms
+import torchvision.datasets as datasets
 from easydict import EasyDict
 from tqdm import tqdm
 from torch.optim import Adam
 import numpy as np
-from iwae_model import *
-from iwae_loss import *
 
+# -- utils import --
+from utils.eval import evaluation
+from utils.misc import dict2edict, save_images
 
-args = EasyDict()
-args['data'] = EasyDict()
-args['data']['root_dir'] = './data'
-args['data']['image_subdir'] = ['omniglot/images_background', 'omniglot/images_background_small1', 'omniglot/images_background_small2', 'omniglot/images_evaluation']
-args['data']['stroke_subdir'] = ['omniglot/strokes_background', 'omniglot/strokes_background_small1', 'omniglot/strokes_background_small2', 'omniglot/strokes_evaluation']
-# args['data']['image_subdir'] = ['omniglot/images_background', 'omniglot/images_background_small2']
-# args['data']['stroke_subdir'] = ['omniglot/strokes_background', 'omniglot/strokes_background_small2']
-args['data']['overfitting'] = False
-
-args['network'] = EasyDict()
-args['network']['EncoderNetwork'] = EasyDict()
-args['network']['EncoderNetwork']['input_dimensions'] = 28 * 28
-args['network']['EncoderNetwork']['hidden_layers'] = [200, 200]
-args['network']['EncoderNetwork']['latent_dimensions'] = 50
-args['network']['EncoderNetwork']['activation'] = "tanh"
-args['network']['EncoderNetwork']['k'] = 1
-
-args['network']['DecoderNetwork'] = EasyDict()
-args['network']['DecoderNetwork']['output_dimension'] = 28 * 28
-args['network']['DecoderNetwork']['hidden_layers'] = [200, 200]
-args['network']['DecoderNetwork']['latent_dimensions'] = 50
-args['network']['DecoderNetwork']['activation'] = "tanh"
-args['network']['DecoderNetwork']['output_activation'] ="sigmoid"
-
-args['train'] = EasyDict()
-args['train']['batch_size'] = 20
-args['train']['optimizer_params'] = EasyDict()
-args['train']['optimizer_params']['betas'] = (0.9, 0.999)
-args['train']['optimizer_params']['eps'] = 1e-4
-args['train']['optimizer_params']['lr'] = 1e-3
-
+# -- other stuff --
+import yaml
+import argparse
 import os
 from datetime import datetime
-save_dir = os.path.join('./logs', datetime.today().strftime('%Y-%m-%d %H:%M:%S'))
-os.makedirs(save_dir, exist_ok=True)
-import json
-with open(os.path.join(save_dir, 'cfg.json'), 'w') as f:
-    json.dump(args, f, indent=4)
+import shutil
+
+# -- parse external arguments --
+parser = argparse.ArgumentParser()
+parser.add_argument('--cfg', type=str, default='./cfg/sample.yml')
+parser.add_argument('--eval', action='store_true', default=False)
+parser.add_argument('--ckpt', type=str, default='')
+args = parser.parse_args()
+
+# -- read configuration --
+with open(args.cfg, 'r') as file:
+    cfg_dict = yaml.safe_load(file)
+cfg = dict2edict(cfg_dict)
+
+if not args.eval:
+    # -- create log directory and save configuration used --
+    save_dir = os.path.join('./logs', datetime.today().strftime('%Y-%m-%d %H:%M:%S'))
+    os.makedirs(save_dir, exist_ok=True)
+    import json
+    with open(os.path.join(save_dir, '{}.json'.format(args.cfg.split('/')[-1].split('.')[0])), 'w') as f:
+        json.dump(cfg, f, indent=4)
+else:
+    assert os.path.exists(args.ckpt)
+    save_dir = os.path.join(*args.ckpt.split('/')[:-1], 'eval')
+    if args.ckpt[0] == '/':
+        save_dir = '/' + save_dir
+    print(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
+    cfg['ckpt_path'] = args.ckpt
+    import json
+    with open(os.path.join(save_dir, '{}.json'.format(args.cfg.split('/')[-1].split('.')[0])), 'w') as f:
+        json.dump(cfg, f, indent=4)
     
-# train_dataset = OmniglotDataset(args['data'])
-train_dataset = OmniglotOriginalDataset(args['data'], train=True)
-test_dataset = OmniglotOriginalDataset(args['data'], train=False)
-train_loader = DataLoader(train_dataset, batch_size=args.train.batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+# -- create a logger file --
+log_file = open(os.path.join(save_dir, 'logs.txt'), 'w')
+log_file.close()
+
+# -- copy the current version of code --
+shutil.copyfile(os.path.abspath(__file__), os.path.join(save_dir, 'code.py'))
+
+# -- dataset --
+if cfg.data.name == 'Omniglot':
+    train_dataset = OmniglotOriginalDataset(cfg['data'], train=True)
+    test_dataset = OmniglotOriginalDataset(cfg['data'], train=False)
+elif cfg.data.name == 'MNIST':
+    train_dataset = datasets.MNIST(root=cfg['data'].root_dir, train=True, transform=transforms.ToTensor(), download=True)
+    test_dataset = datasets.MNIST(root=cfg['data'].root_dir, train=False, transform=transforms.ToTensor(), download=True) 
+else:
+    raise NotImplementedError
+
+train_loader = DataLoader(train_dataset, batch_size=cfg.train.batch_size, shuffle=True, num_workers=10)
+test_loader = DataLoader(test_dataset, batch_size=35, shuffle=False, num_workers=10)
 print("[main]: Iterations per epoch: ", len(train_loader))
 
-loss_func = VAELowerBoundLoss()
+# -- loss --
+if cfg.loss.name == 'VAE':
+    loss_func = VAELowerBoundLoss()
+elif cfg.loss.name == 'IWAE':
+    loss_func = IWAELowerBoundLoss()
+else:
+    raise NotImplementedError
 eval_metric = IWAELowerBoundLoss()
-# loss_func = evidence_lower_bound
-model = VAE(args['network'])
+
+# -- model --
+model = VAE(cfg['network'])
+if args.eval:
+    model.load_state_dict(torch.load(args.ckpt))
 model = model.to('cuda')
 
-def save_image(x, y, prefix):
-    image_x = x.detach().cpu().numpy().transpose((0,2,3,1))
-    image_y = y.detach().cpu().numpy().transpose((0,2,3,1))
-    image_x = (image_x * 255).astype(np.uint8)
-    image_y = (image_y * 255).astype(np.uint8)
-    for i in range(y.shape[0]):
-        cv2.imwrite('../logs/{}_{:03d}_image_y.png'.format(prefix, i), image_y[i])
-        cv2.imwrite('../logs/{}_{:03d}_image_x.png'.format(prefix, i), image_x[i])
-        k = cv2.waitKey()
-        
-def show_image(x, y):
-    image_x = x.detach().cpu().numpy().transpose((0,2,3,1))
-    image_y = y.detach().cpu().numpy().transpose((0,2,3,1))
-    image_x = (image_x * 255).astype(np.uint8)
-    image_y = (image_y * 255).astype(np.uint8)
-    for i in range(y.shape[0]):
-        cv2.imshow('image_y', image_y[i])
-        cv2.imshow('image_x', image_x[i])
-        k = cv2.waitKey()
-        
-optimizer = Adam(model.parameters(), **args.train.optimizer_params)
-EPOCH = 3280
+# -- optimizer --
+optimizer = Adam(model.parameters(), **cfg.train.optimizer_params)
+
+# -- start training --
 I = 7
 total_iterations = sum([3**i for i in range(I+1)]) * len(train_loader)
-accum_iter = 0
+if not args.eval:
+    accum_iter = 0
 
-with tqdm(total=total_iterations) as pbar:
-    for i in range(I+1):
-        lr_scaler = 10 ** (-i/7.0)
-        new_lr = args['train']['optimizer_params']['lr'] * lr_scaler
+    with tqdm(total=total_iterations) as pbar:
+        for i in range(I+1):
+            lr_scaler = 10 ** (-i/7.0)
+            new_lr = cfg['train']['optimizer_params']['lr'] * lr_scaler
 
-        # -- lr scheduling --
-        for g in optimizer.param_groups:
-            g['lr'] = new_lr
-        
-        num_iterations = 3 ** i
-        
-        for sub_iteration in range(num_iterations):
+            # -- lr scheduling --
+            for g in optimizer.param_groups:
+                g['lr'] = new_lr
             
-            for it, sample in enumerate(train_loader):
-                for k, v in sample.items():
-                    sample[k] = v.cuda()
+            num_iterations = 3 ** i
+            
+            for sub_iteration in range(num_iterations):
                 
-                
-                B, C, HW = sample['image'].shape
-                # net_in = sample['image'].flatten(start_dim=1)
-                net_in = sample['image'].view(-1, 1, 28 * 28)
-                optimizer.zero_grad()
-                
-                mean, logvar, z, y = model(net_in)
-                # print(y.shape)
-                # y = y.view(B, C, H, W)
-                # likelihood_params = {'theta': y}
-                # input = {
-                #         'log_var': logvar,
-                #         'mu': mean,
-                #         'x': net_in,
-                #         'likelihood_params': likelihood_params
-                #         }
-                # loss = loss_func(input)
-                
-                input = {
-                            'log_var': logvar,
-                            'mu': mean,
-                            'x': net_in,
-                            'recon_x': y,
-                            'repar_z': z,
-                            'k': args['network']['EncoderNetwork']['k']
-                            }
-                loss = eval_metric(input)
-                
-                
-                loss.backward()
-                optimizer.step()
-                
+                for it, sample in enumerate(train_loader):
+                    image = sample[0]
+                    image = image.to('cuda')
                     
-                pbar.update(1)
-                accum_iter += 1
-                if it % 100 == 0:
-                    pbar.set_description("Loss {:.2f}, lr: {:.5f}".format(loss.item(), new_lr))
-                
-                if accum_iter % (39950 * 2) == 0:
-                    # save_image(sample['image'], y, prefix="{:07d}".format(accum_iter)) 
+                    net_in = image.view(-1, 1, 28 * 28)
+                    optimizer.zero_grad()
                     
-                    model.eval()
-                    # train_dataset.eval()
+                    mean, logvar, z, y = model(net_in)
+
+                    if cfg.loss.name == 'VAE':
+                        likelihood_params = {'theta': y}
+                        input = {
+                                'log_var': logvar,
+                                'mu': mean,
+                                'x': net_in,
+                                'likelihood_params': likelihood_params
+                                }
+                    elif cfg.loss.name == 'IWAE':
+                        input = {
+                                'log_var': logvar,
+                                'mu': mean,
+                                'x': net_in,
+                                'recon_x': y,
+                                'repar_z': z,
+                                'k': model.encoder.k
+                                }
+                        
+                    loss = loss_func(input)
                     
-                    model.encoder.k = 5000
-                    with torch.no_grad():
-                        eval_loss = 0
-                        n_samples = 0
-                        for _, sample in enumerate(test_loader):
-                            for k, v in sample.items():
-                                sample[k] = v.cuda()
-                            
-                            # B, C, HW = image.shape
-                            # flattened_img = sample['image'].flatten(start_dim=1)
-                            flattened_img = sample['image'].view(-1, 1, 28 * 28)
-                            mean, logvar, z, y = model(flattened_img)
+                    loss.backward()
+                    optimizer.step()
+                    
+                    pbar.update(1)
+                    accum_iter += 1
+                    if it % 100 == 0:
+                        pbar.set_description("Loss {:.2f}, lr: {:.5f}".format(loss.item(), new_lr))
+                    
+                    if accum_iter % cfg.train.eval_period == 0:
+                        nll, image_in, image_out = evaluation(model, test_loader, save_dir, eval_metric, accum_iter)
+                        
+                        image_out = image_out[:,0,...]
+                        image_out = image_out.view(-1, 1, 28, 28)
+                        image_in = image_in.view(-1, 1, 28, 28)
+                        save_sub_dir = os.path.join(save_dir, 'iter_{:07d}'.format(accum_iter))
+                        os.makedirs(save_sub_dir, exist_ok=True)
+                        save_images(image_out, save_dir=save_sub_dir, suffix='pred')
+                        save_images(image_in, save_dir=save_sub_dir, suffix='gt')
+                        
+                        model.train()
+                        log_file = open(os.path.join(save_dir, 'logs.txt'), "a")
+                        log_file.write("iteration {:07d}, NLL {:.2f}, lr: {:.5f}\n".format(accum_iter, nll, new_lr))
+                        log_file.close()
 
-                            input = {
-                                        'log_var': logvar,
-                                        'mu': mean,
-                                        'x': flattened_img,
-                                        'recon_x': y,
-                                        'repar_z': z,
-                                        'k': 5000
-                                        }
-                            loss = eval_metric(input)
-                            eval_loss += (loss * sample['image'].shape[0])
-                            n_samples += sample['image'].shape[0]
-                            # print(loss)
-
-                        eval_loss = eval_loss / n_samples
-                        print("eval loss", eval_loss)
-                        torch.save(model.state_dict(), os.path.join(save_dir, "iwae_model_iter{:07d}_nll{:.3f}.pth".format(accum_iter, eval_loss.item())))
-                    model.encoder.k = args['network']['EncoderNetwork']['k']
-                    model.train()
-
-# save_image(sample['image'], x_hat) 
-
+nll, _, _ = evaluation(model, test_loader, save_dir, eval_metric, total_iterations-1)
+log_file = open(os.path.join(save_dir, 'logs.txt'), "a")
+log_file.write("Final, NLL {:.2f}".format(nll))
+log_file.close()

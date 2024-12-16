@@ -1,0 +1,2 @@
+from .vae_lower_bound_loss import VAELowerBoundLoss
+from .iwae_loss import IWAELowerBoundLoss

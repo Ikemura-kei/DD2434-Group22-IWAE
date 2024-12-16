@@ -1,0 +1,30 @@
+data:
+  name: Omniglot
+  root_dir: './data'
+
+loss:
+  name: IWAE
+
+network:
+  EncoderNetwork:
+    input_dimensions: 784
+    hidden_layers: [200, 200]
+    latent_dimensions: 50
+    activation: "tanh"
+    k: 50
+  
+  DecoderNetwork:
+    output_dimension: 784
+    hidden_layers: [200, 200]
+    latent_dimensions: 50
+    activation: "tanh"
+    output_activation: "sigmoid"
+
+train:
+  batch_size: 64
+  optimizer_params:
+    betas: [0.9, 0.999]
+    eps: 1.0e-4
+    lr: 1.0e-3
+
+  eval_period: 25000
